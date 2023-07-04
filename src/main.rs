@@ -15,6 +15,8 @@ fn get_file(url: &str) -> String {
 }
 
 fn main() {
+    println!("One sec!");
+
     let site_url = "https://gbatemp.net";
     let max_image_size: u64 = 10_000_000; // bytes => 10mb
 
@@ -31,7 +33,7 @@ fn main() {
                 }
 
                 let image_url = format!("{site_url}/{url}");
-                println!("Downloading image: {image_url}");
+                // println!("Downloading image: {image_url}");
 
                 match ureq::get(&image_url).call() {
                     Ok(resp) => {
@@ -52,7 +54,7 @@ fn main() {
                                 }
                             },
                             None => {
-                                println!("[Warning] Content-Length header not found!");
+                                // println!("[Warning] Content-Length header not found!");
                                 // return None; // this isn't for the match, rather the outer function
                                 0 // don't fail if not found since Gbatemp doesn't return a content-length header so this whole endeavour was wasted...
                             }
@@ -105,7 +107,7 @@ fn main() {
         let mut file = File::create(file_name).expect("Failed to create file");
 
         match file.write(&meme) {
-            Ok(_) => println!("Saved image: {}", file_name),
+            Ok(_) => (),
             Err(err) => println!("Failed to save image {}: {err}", file_name),
         }
     }
