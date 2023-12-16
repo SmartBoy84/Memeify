@@ -1,116 +1,102 @@
-use imageinfo::ImageInfo; // ugh, file extensions are not a given apparently
-use scraper::{Html, Selector};
-use std::fs::File;
-use std::io::{Read, Write};
+// 116 lines previous
+// scraper, imageinfo, ureq
+
+use regex::Regex;
+use scraper::{self, ElementRef, Html, Selector};
+use std::fs;
+use std::sync::OnceLock;
 use ureq;
 
-fn get_file(url: &str) -> String {
-    match ureq::get(url).call() {
-        Ok(data) => data.into_string().unwrap_or_default(),
-        Err(err) => {
-            println!("[WARNING] failed to download web page {:?}!", url);
-            err.to_string()
-        }
+const URL: &str = "https://gbatemp.net/";
+const SELECTOR: &str = ".memethumb";
+
+static EXTENSION_EXTRACTOR: OnceLock<Regex> = OnceLock::new();
+
+fn extract_link(ele: ElementRef<'_>) -> Option<String> {
+    if ele.value().id().is_some_and(|id| id == "mememorelink") {
+        None
+    } else {
+        ele.value()
+            .attr("href")
+            .and_then(|link| Some(format!("{}{}", URL, link)))
+            .or_else(|| {
+                println!("Malformed meme; {:?}", ele);
+                None
+            })
     }
 }
 
-fn main() {
-    println!("One sec!");
+fn download_image(link: &str) -> Option<(Vec<u8>, String)> {
+    let resp = match ureq::get(&link).call() {
+        Ok(resp) => resp,
+        Err(err) => {
+            println!("Failed to download image; {err}");
+            return None;
+        }
+    };
 
-    let site_url = "https://gbatemp.net";
-    let max_image_size: u64 = 10_000_000; // bytes => 10mb
+    let expected_size = resp
+        .header("content-length")
+        .and_then(|val| str::parse::<usize>(val).ok())
+        .unwrap_or(0);
 
-    let body: String = get_file(site_url);
-
-    let fragment = Html::parse_fragment(body.as_str());
-    let elements: Vec<_> = fragment
-        .select(&Selector::parse(".memethumb").unwrap())
-        .filter_map(|e| match e.value().attr("href") {
-            Some(url) => {
-                if !url.contains("attachments") {
-                    println!("Malformed URL in memebox element: {:?}", url);
-                    return None;
-                }
-
-                let image_url = format!("{site_url}/{url}");
-                // println!("Downloading image: {image_url}");
-
-                match ureq::get(&image_url).call() {
-                    Ok(resp) => {
-
-                        let expected_read_size: usize = match resp.header("Content-Length") {
-                            Some(len_header) => match len_header.to_string().parse() {
-                                Ok(length) => {
-                                    if length > max_image_size as usize {
-                                        println!("Why is the image {length} bytes?!");
-                                        return None;
-                                    } else {
-                                        length
-                                    }
-                                }
-                                Err(err) => {
-                                    println!("Failed to parse Content-Length value: {err}");
-                                    return None;
-                                }
-                            },
-                            None => {
-                                // println!("[Warning] Content-Length header not found!");
-                                // return None; // this isn't for the match, rather the outer function
-                                0 // don't fail if not found since Gbatemp doesn't return a content-length header so this whole endeavour was wasted...
-                            }
-                        };
-
-                        // phew - we finally made it (I love rust!)
-                        let mut bytes: Vec<u8> = Vec::with_capacity(expected_read_size);
-                        match resp.into_reader().take(max_image_size).read_to_end(&mut bytes) {
-                            Ok(read_size) => {
-                                if expected_read_size > 0 && read_size != expected_read_size {
-                                    println!("Mismatching payload sizes := expected {expected_read_size} but got {read_size}");
-                                    return None;
-                                }
-                            },
-                            Err(err) => {
-                                println!("Failed to read image data: ${err}");
-                                return None;
-                            }
-                        };
-
-                    match ImageInfo::from_raw_data(&bytes) {
-                        Ok(_) => return Some(bytes),
-                        Err(err) => {
-                            println!("Failed to read image header: {err}");
-                            return None;
-                        }
-                    }}
-                    Err(err) => {
-                        println!("Failed to download image: {err}");
-                        return None;
-                    }
-                };
-            }
-            None => {
-                println!("[WARNING] Url not found in memebox element");
-                None
-            }
-        })
-        .collect();
-
-    for (index, meme) in elements.iter().enumerate() {
-        let image_type = ImageInfo::from_raw_data(&meme)
+    let Some(extension) = resp.header("Content-Disposition").and_then(|string| {
+        EXTENSION_EXTRACTOR
+            .get()
             .unwrap()
-            .mimetype
-            .split("/")
-            .nth(1)
-            .unwrap();
+            .captures(string)
+            .and_then(|captures| {
+                captures
+                    .get(0)
+                    .and_then(|matched| Some(matched.as_str().to_string()))
+            })
+    }) else {
+        println!("Failed to find image extenstion from content-disposition header");
+        return None;
+    };
 
-        let file_name = &format!("{}.{}", index + 1, image_type);
-        let mut file = File::create(file_name).expect("Failed to create file");
+    let mut img_buf: Vec<u8> = Vec::with_capacity(expected_size);
+    match resp.into_reader().read_to_end(&mut img_buf) {
+        Ok(size) if expected_size > 0 && size > expected_size => {
+            println!(
+                "Expected {} byte but got {} bytes, failed",
+                size, expected_size
+            );
+            return None;
+        }
+        Err(err) => {
+            println!("Failed to read image data; {err}");
+            return None;
+        }
+        _ => (),
+    };
 
-        match file.write(&meme) {
-            Ok(_) => (),
-            Err(err) => println!("Failed to save image {}: {err}", file_name),
+    Some((img_buf, extension)) // a bit of cloning but whatever
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let _ = EXTENSION_EXTRACTOR.set(Regex::new(r"\.(\w+)")?);
+
+    println!("Downloading webpage");
+    let webpage = &ureq::get(URL).call()?.into_string()?;
+
+    println!("Parsing webpage");
+    let webpage = Html::parse_document(&webpage);
+
+    println!("Extracting image links");
+    let selector = Selector::parse(SELECTOR)?;
+    let image_links = webpage.select(&selector).filter_map(extract_link);
+
+    println!("Downloading memes");
+    for (index, link) in image_links.enumerate() {
+        let Some((data, extension)) = download_image(&link) else {
+            continue;
+        };
+
+        if let Err(err) = fs::write(format!("{}{}", index, extension), data) {
+            println!("Failed to write image to disk; {err}")
         }
     }
-    // println!("{:?}", body)
-    // memethumb
+
+    Ok(())
 }

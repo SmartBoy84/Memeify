@@ -7,5 +7,6 @@ edition = "2021"
 
 [dependencies]
 imageinfo = "0.7.7"
+regex = "1.10.2"
 scraper = "0.17.1"
 ureq = "2.7.1"
