@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+indicatif = "0.17.7"
 regex = "1.10.2"
 scraper = "0.17.1"
 ureq = "2.7.1"

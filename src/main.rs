@@ -1,3 +1,4 @@
+use indicatif::ProgressBar;
 use regex::Regex;
 use scraper::{self, ElementRef, Html, Selector};
 use std::fs;
@@ -82,10 +83,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Extracting image links");
     let selector = Selector::parse(SELECTOR)?;
-    let image_links = webpage.select(&selector).filter_map(extract_link);
+    let image_links: Vec<String> = webpage.select(&selector).filter_map(extract_link).collect();
 
     println!("Downloading memes");
-    for (index, link) in image_links.enumerate() {
+    let bar = ProgressBar::new(image_links.len() as u64);
+    
+    for (index, link) in image_links.iter().enumerate() {
+        bar.inc(1);
+
         let Some((data, extension)) = download_image(&link) else {
             continue;
         };
@@ -95,5 +100,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    bar.finish();
     Ok(())
 }
