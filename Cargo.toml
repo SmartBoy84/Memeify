@@ -3,10 +3,7 @@ name = "webby"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
-imageinfo = "0.7.7"
 regex = "1.10.2"
 scraper = "0.17.1"
 ureq = "2.7.1"

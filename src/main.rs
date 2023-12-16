@@ -1,6 +1,3 @@
-// 116 lines previous
-// scraper, imageinfo, ureq
-
 use regex::Regex;
 use scraper::{self, ElementRef, Html, Selector};
 use std::fs;
